@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>UpdateOTA Update</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="Style.css">
+</head>
+<body>
+  <div class="container">
+    <h2>UpdateOTA Update</h2>
+    <div class="info-row"><span class="info-label">Firmware Version :</span> <span class="info-value" id="fwVersion">...</span></div>
+    <div class="info-row"><span class="info-label">Device ID :</span> <span class="info-value" id="deviceId">...</span></div>
+    <div class="info-row"><span class="info-label">Active OTA :</span> <span class="info-value" id="activeOta">...</span></div>
+    <form id="otaForm">
+      <div class="row">
+        <select id="modeSelect" name="mode">
+          <option value="fw">Firmware</option>
+          <option value="fs">SPIFFS</option>
+          <option value="eeprom">EEPROM</option>
+        </select>
+      </div>
+      <div class="drop-area" id="dropArea">
+        <span id="dropText">Drag &amp; drop your firmware here<br>or</span><br>
+        <label class="file-label" for="file">Choose File</label>
+        <input type="file" id="file" name="file" required>
+        <div class="file-name" id="fileName"></div>
+      </div>
+      <div class="progress"><div class="progress-bar" id="progressBar"></div></div>
+      <button type="submit" id="uploadBtn">Upload & Update</button>
+    </form>
+    <div class="msg" id="msg"></div>
+    <button id="lastOtaBtn" class="red-btn" type="button">Switch to Last Firmware</button>
+  </div>
+  <script>
+    // Fetch Firmware Version and Device ID
+    fetch('/getconfig?key=0,1&name=activeOta')
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('fwVersion').textContent = data.key0 || 'N/A';
+        document.getElementById('deviceId').textContent = data.key1 || 'N/A';
+        document.getElementById('activeOta').textContent = data.activeOta || 'N/A';
+      })
+      .catch(() => {
+        document.getElementById('fwVersion').textContent = 'N/A';
+        document.getElementById('deviceId').textContent = 'N/A';
+        document.getElementById('activeOta').textContent = 'N/A';
+      });
+      
+
+    const form = document.getElementById('otaForm');
+    const fileInput = document.getElementById('file');
+    const progressBar = document.getElementById('progressBar');
+    const msg = document.getElementById('msg');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const dropArea = document.getElementById('dropArea');
+    const fileName = document.getElementById('fileName');
+    const modeSelect = document.getElementById('modeSelect');
+    let selectedFile = null;
+
+    // Drag and drop events
+    dropArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropArea.classList.add('dragover');
+    });
+    dropArea.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dropArea.classList.remove('dragover');
+    });
+    dropArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropArea.classList.remove('dragover');
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        fileInput.files = e.dataTransfer.files;
+        selectedFile = e.dataTransfer.files[0];
+        fileName.textContent = selectedFile.name;
+      }
+    });
+
+    // File input change
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length > 0) {
+        selectedFile = fileInput.files[0];
+        fileName.textContent = selectedFile.name;
+      } else {
+        selectedFile = null;
+        fileName.textContent = '';
+      }
+    });
+
+    // Clicking drop area triggers file input
+    dropArea.addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    form.onsubmit = function(e) {
+      e.preventDefault();
+      msg.textContent = '';
+      msg.classList.remove('error');
+      progressBar.style.width = '0%';
+      uploadBtn.disabled = true;
+
+      const file = selectedFile || fileInput.files[0];
+      
+      if (!file) {
+        msg.textContent = 'Please select a file.';
+        uploadBtn.disabled = false;
+        return;
+      }
+
+      // Send mode as query parameter
+      const mode = modeSelect.value;
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', `/ota/start?mode=${encodeURIComponent(mode)}&size=${file.size}`, true);
+      xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+          if (xhr.status === 200) {
+            _upload();
+          } 
+          else {
+            uploadBtn.disabled = false;
+            msg.textContent = 'Failed to start OTA: ' + xhr.statusText;
+            msg.classList.add('error');
+          }
+        }
+      };
+      xhr.send();
+
+    };
+
+
+    function _upload(){
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/ota/upload', true);
+
+      xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+          const percent = (e.loaded / e.total) * 100;
+          progressBar.style.width = percent + '%';
+        }
+      };
+
+      xhr.onload = function() {
+        uploadBtn.disabled = false;
+        if (xhr.status === 200) {
+          msg.textContent = 'Update successful! Device will reboot if enabled.';
+          progressBar.style.width = '100%';
+        } else {
+          msg.textContent = 'Update failed: ' + xhr.responseText;
+          msg.classList.add('error');
+        }
+      };
+
+      xhr.onerror = function() {
+        uploadBtn.disabled = false;
+        msg.textContent = 'Upload error!';
+        msg.classList.add('error');
+      };
+
+      const file = selectedFile || fileInput.files[0];
+      if (!file) {
+        msg.textContent = 'Please select a file.';
+        uploadBtn.disabled = false;
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+      xhr.send(formData);
+    }
+
+    document.getElementById('lastOtaBtn').onclick = function() {
+  fetch('/ota/last')
+    .then(r => {
+      if (r.status === 200) {
+        return r.text().then(txt => {
+          msg.textContent = 'Switch request sent : ' + txt;
+          msg.classList.remove('error');
+        });
+      }else if (r.status === 400) {
+        return r.text().then(txt => {
+          msg.textContent = 'Switch request failed : ' + txt;
+          msg.classList.add('error');
+        });
+      } else {
+        msg.textContent = 'Error: ' + r.status;
+        msg.classList.add('error');
+      }
+    })
+    .catch(() => {
+      msg.textContent = 'Failed to send switch request!';
+      msg.classList.add('error');
+    });
+}
+  </script>
+</body>
+</html>

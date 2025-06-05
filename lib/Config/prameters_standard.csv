@@ -1,0 +1,9 @@
+Name,ID,Default,Description,Lib,Type,Size,Address,ReadLevel,WriteLevel
+Firmware Version,0,1.0.2,,main,String,8,0,SYSTEM,SYSTEM
+Device Id,1,100001,,main,String,16,10,SYSTEM,SYSTEM
+Log Level,10,3,,main,uint8_t,2,192,,
+RFU,,,,,,,,,
+User Name,22,user,,Server,String,16,292,,
+User Pass,23,user,,Server,String,16,310,,
+Server Wdg Timeout,24,12000,,Server,uint32_t,8,328,,
+RFU,,,,,,,,,
