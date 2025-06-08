@@ -18,3 +18,7 @@ String getActiveOtaLabel() {
     if (running) return String(running->label);
     return String("unknown");
 }
+void Restart(uint32_t _delay){
+    delay(_delay);
+    ESP.restart();
+}

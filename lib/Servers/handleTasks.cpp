@@ -185,6 +185,5 @@ void handleSetConfig(){
 
     CONFIG.save(); // If you have a save method
     server.send(200, "text/plain", "OK");
-    delay(2000);
-    ESP.restart();
+    Restart(2000);
 }

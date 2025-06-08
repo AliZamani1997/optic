@@ -172,7 +172,7 @@ codes = codes.replace("##PARAMTERS##", parameters)
 with open("lib/Config/config_param.cpp", "w") as file:
     file.write(codes)
 
-header = header.replace("##ParameterCount##", str(len(columns)))
+header = header.replace("##ParameterCount##", str(len(table["ID"])))
 header = header.replace("##ParameterCK##", parameters_ck)
 header = header.replace("##TotalSize##", f"0x{address:04X}")
 

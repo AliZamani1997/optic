@@ -5,6 +5,7 @@
 #include <FS.h>
 #include <SPIFFS.h>
 #include <system.h>
+#include "resource_mutex.h"
 
 // Make TAG static to avoid multiple definition linker errors
 static const char* TAG = "Config";
@@ -13,7 +14,7 @@ static const char* TAG = "Config";
  * @brief ConfigLib handles configuration storage in EEPROM or RAM, with JSON serialization.
  *        It supports loading, saving, clearing, and accessing configuration values.
  */
-ConfigLib::ConfigLib(size_t eepromSize) : eepromAvailable(false), eepromSize(eepromSize) {}
+ConfigLib::ConfigLib(size_t eepromSize) : eepromAvailable(false), eepromSize(eepromSize) , config_mutex_handle(xSemaphoreCreateMutex()) {}
 
 /**
  * @brief Initializes the configuration system. Tries to use EEPROM if available.
@@ -49,13 +50,17 @@ bool ConfigLib::checkAvailable() {
  */
 bool ConfigLib::save() {
     checkAvailable();
-    if (!EEPROM.commit())
-    {
-        LOG_ERROR("Save failed !");
+    if(xSemaphoreTake(config_mutex_handle, 2000 / portTICK_PERIOD_MS) != pdTRUE) {
+        LOG_ERROR("Failed to acquire config mutex");
         return false;
     }
+    LOG_DEBUG("Saving configuration to EEPROM...");
     
-    return true;
+    bool ret = EEPROM.commit();
+    if (!ret)
+        LOG_ERROR("Save failed !");
+    xSemaphoreGive(config_mutex_handle);
+    return ret;
 }
 config_t * ConfigLib::getValidParameter(config_key_t key) {
     config_t * param = getParameter(key);
@@ -114,6 +119,10 @@ bool ConfigLib::checkCRC(config_key_t key , const void* data, size_t length) {
 
 String ConfigLib::get(config_key_t key) {
     checkAvailable();
+    if(xSemaphoreTake(config_mutex_handle, 2000 / portTICK_PERIOD_MS) != pdTRUE) {
+        LOG_ERROR("Failed to acquire config mutex");
+        return "";
+    }
     config_t * parameter = getValidParameter(key);    
 
     char buf[CONFIGLIB_VALUE_MAX_LENGTH];
@@ -125,21 +134,30 @@ String ConfigLib::get(config_key_t key) {
     }
     LOG_WARN("%s has not been set : using default value ." ,parameter->Name);
     LOG_DEBUG("%s default value : %s" ,parameter->Name,parameter->Default);
+
+    xSemaphoreGive(config_mutex_handle);
     return String(parameter->Default);
 }
 
 bool ConfigLib::set(config_key_t key , const String& value) {
     checkAvailable();
+    
+    if(xSemaphoreTake(config_mutex_handle, 2000 / portTICK_PERIOD_MS) != pdTRUE) {
+        LOG_ERROR("Failed to acquire config mutex");
+        return false;
+    }
     config_t * parameter = getValidParameter(key);    
-
+    bool ret = true;
     if (value.length() > parameter->size)
     {
         LOG_ERROR("'%s' for key %s is too large , must be less than %u character !",value.c_str(), parameter->Name, parameter->size);
+        xSemaphoreGive(config_mutex_handle);
         return false;
     }
     if(parameter->validation){
         if(parameter->validation(value.c_str())){
             LOG_ERROR("'%s' for key %s is invalid !",value.c_str(), parameter->Name);
+            xSemaphoreGive(config_mutex_handle);
             return false;
         }
     }
@@ -154,6 +172,7 @@ bool ConfigLib::set(config_key_t key , const String& value) {
     buf[parameter->size + 1] = (crc >> 8) & 0xFF;
 
     EEPROM.writeBytes(parameter->address, buf, parameter->size+CONFIGLIB_CRC_LENGTH);
+    xSemaphoreGive(config_mutex_handle);
     return true;
 }
 
@@ -161,23 +180,26 @@ bool ConfigLib::set(config_key_t key , const String& value) {
  * @brief Print all configuration key-value pairs to the specified UART stream.
  * @param uart Pointer to a Stream (e.g., &Serial).
  */
-void ConfigLib::printAllConfigs(Stream* uart) {
-    if (!uart) return;
-
+void ConfigLib::printAllConfigs(Stream & uart) {
+    if(xSemaphoreTake(config_mutex_handle, 2000 / portTICK_PERIOD_MS) != pdTRUE) {
+        LOG_ERROR("Failed to acquire config mutex");
+        return ;
+    }
     char buf[CONFIGLIB_VALUE_MAX_LENGTH];
     for (size_t i = 0; i < CONFIGLIB_PARAMETERS_COUNT; i++) {
         
         EEPROM.readBytes(Parameters[i].address, buf, Parameters[i].size + CONFIGLIB_CRC_LENGTH);
 
         if (checkCRC(static_cast<config_key_t>(Parameters[i].key) , buf, Parameters[i].size + CONFIGLIB_CRC_LENGTH))
-        {        
-            uart->printf("Config Key: %s, Value : %s  (%s)\n", Parameters[i].Name,String(buf, Parameters[i].size).c_str(),Parameters[i].Description);
+        {
+            uart.printf("Config Key: %s, Value : %s  (%s)\n", Parameters[i].Name,String(buf, Parameters[i].size).c_str(),Parameters[i].Description);
         }
         else{
-            uart->printf("Config Key: %s, Value(default): %s  (%s)\n", Parameters[i].Name,Parameters[i].Default,Parameters[i].Description);
+            uart.printf("Config Key: %s, Value(default): %s  (%s)\n", Parameters[i].Name,Parameters[i].Default,Parameters[i].Description);
         }
     }
-    LOG_INFO("All configs printed to UART.");
+    
+    xSemaphoreGive(config_mutex_handle);
 }
 
 /**
@@ -189,20 +211,40 @@ void ConfigLib::printAllConfigs(Stream* uart) {
 void ConfigLib::configChangesLog(config_key_t key, const String& newValue) {
     const char* TAG = "Config";
     String oldValue = get(key);
+    File logFile ;
+    bool failed = true;
     if (oldValue != newValue) {
-        File logFile = CONFIGLIB_LOG_FILE(FILE_APPEND,true);
-        if (logFile) {
-            // Get current date and time string
-            String dateTime = "1970-01-01 00:00:00"; // TODO: Replace with actual date/time function
-            logFile.printf("Key: %s , Old: %s , New: %s , date time : %s\n", getKeyName(key), oldValue.c_str(), newValue.c_str(), dateTime.c_str());
-            logFile.close();
-        } else {
-            LOG_WARN("Failed to open config_changes.log for appending");
+        #if CONFIGLIB_LOG_FILESYSTEM == SPIFFS
+        if (xSemaphoreTake(spiffs_mutex_handle, 2000 / portTICK_PERIOD_MS) == pdTRUE) {
+        #elif CONFIGLIB_LOG_FILESYSTEM == SD_MMC
+        if (xSemaphoreTake(sd_mutex_handle, 2000 / portTICK_PERIOD_MS) == pdTRUE) {
+        #endif
+        
+            logFile = CONFIGLIB_LOG_FILESYSTEM.open(CONFIGLIB_LOG_PATH,FILE_APPEND,true);
+            if (logFile) {
+                // Get current date and time string
+                String dateTime = "1970-01-01 00:00:00"; // TODO: Replace with actual date/time function
+                if(logFile.printf("Key: %s , Old: %s , New: %s , date time : %s\n", getKeyName(key), oldValue.c_str(), newValue.c_str(), dateTime.c_str())){
+                    logFile.close();
+                    failed=false;
+                }
+            }
+            
+            #if CONFIGLIB_LOG_FILESYSTEM == SPIFFS
+            xSemaphoreGive(spiffs_mutex_handle);
         }
-        LOG_INFO("Config key '%s' changed from '%s' to '%s'", getKeyName(key), oldValue.c_str(), newValue.c_str());
-    } else {
+            #elif CONFIGLIB_LOG_FILESYSTEM == SD_MMC
+            xSemaphoreGive(sd_mutex_handle);
+        }
+            #endif
+
+    }else{
         LOG_DEBUG("No change for config key '%s', value remains '%s'", getKeyName(key), oldValue.c_str());
+        return;
     }
+    if(failed)
+        LOG_ERROR("Failed to write on config_changes.log !");
+    LOG_INFO("Config key '%s' changed from '%s' to '%s'", getKeyName(key), oldValue.c_str(), newValue.c_str());
 }
 
 ConfigLib CONFIG;

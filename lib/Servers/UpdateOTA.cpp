@@ -39,7 +39,7 @@ void UpdateOTAClass::begin(WebServer *server, const char * username, const char 
           if (err == ESP_OK) {
               LOG_INFO("Last boot partition %s will be used", LastOta.c_str());
               return _server->send(200, "text/plain", "Last boot partition will be used");
-              ESP.restart();
+              Restart(1000);
           } else {
               LOG_ERROR("Failed to set boot partition: %d", LastOta.c_str());
               return _server->send(400, "text/plain", "Failed to set boot partition");
@@ -200,7 +200,7 @@ void UpdateOTAClass::loop() {
   // Check if 2 seconds have passed since _reboot_request_millis was set
   if (_reboot && millis() - _reboot_request_millis > 2000) {
     LOG_INFO("Rebooting...");
-    ESP.restart();
+    Restart(0);
     _reboot = false;
   }
 }

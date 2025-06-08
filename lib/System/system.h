@@ -9,4 +9,7 @@ String getActiveOtaLabel() ;
     LOG_ERROR(format, ##__VA_ARGS__); \
     sys_error_critical(TAG,__FILE__,__FUNCTION__,__LINE__); \
 } while(0)
+
+void Restart(uint32_t _delay = 0);
+
 #endif /* _system_ */

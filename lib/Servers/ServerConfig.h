@@ -12,7 +12,7 @@
 #endif
 
 #ifndef WEB_SERVER_TASK_CORE_ID
-#define WEB_SERVER_TASK_CORE_ID 1
+#define WEB_SERVER_TASK_CORE_ID 0
 #endif
 
 #ifndef WEB_SERVER_TASK_STACK_SIZE
