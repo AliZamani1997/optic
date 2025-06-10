@@ -2,11 +2,11 @@
 
 Keypad::Keypad(const KeypadPinConfig* configs, uint8_t buttonCount)
     : _buttonCount(buttonCount),
-      _debounceMs(30),
-      _longPressMs(500),
-      _veryLongPressMs(1500),
-      _doubleTapMs(250),
-      _repeatMs(300),
+      _debounceMs(100),
+      _longPressMs(2000),
+      _veryLongPressMs(6000),
+      _doubleTapMs(800),
+      _repeatMs(1000),
       _anyCallback(nullptr)
 {
     for (uint8_t i = 0; i < _buttonCount; ++i) {

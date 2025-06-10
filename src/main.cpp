@@ -343,21 +343,27 @@ std::vector<MenuItem> settingsItems = {
     MenuItem("Flag", &someFlag),
     MenuItem("Value", &someValue, 0, 100)
 };
-MenuPage settingsMenu("Settings", settingsItems);
+MenuPage settingsMenu(&ui,"Settings", settingsItems);
 
 // Root menu
 std::vector<MenuItem> mainItems = {
-    MenuItem("Settings", &settingsMenu),
+    MenuItem("Settings", [](){
+        ui.pushPage(&settingsMenu);
+    }),
     MenuItem("Reset", [](){
         ui.pushPage(new ConfirmationPopup("Reset all?", [](bool yes){
-            if (yes) ui.showPopup("Reset OK!");
+            if (yes) ui.showPopup("Reset OK!",3000,true);
+            else ui.popPage();
         }));
     }),
     MenuItem("About", [](){
         ui.showPopup("V1.0 by OpenAI", 1500);
+    }),
+    MenuItem("WADSFl; ", [](){
+        ui.showPopup("V1.0 by OpenAI", 1500);
     })
 };
-MenuPage mainMenu("Main Menu", mainItems);
+MenuPage mainMenu(&ui,"Main Menu", mainItems);
 
 
 #endif // EXAMPLE_2
@@ -370,13 +376,13 @@ void setup() {
     }
     ui.pushPage(&mainMenu);
 
-    // Optional: status bar for battery, WiFi, etc.
-    ui.setStatusBarProvider([](Adafruit_SSD1306& d){
-        d.setTextSize(1);
-        d.setTextColor(SSD1306_WHITE);
-        d.setCursor(80, 0);
-        d.print("WiFi"); // Example
-    });
+    // // Optional: status bar for battery, WiFi, etc.
+    // ui.setStatusBarProvider([](Adafruit_SSD1306& d){
+    //     d.setTextSize(1);
+    //     d.setTextColor(SSD1306_WHITE);
+    //     d.setCursor(80, 0);
+    //     d.print("WiFi"); // Example
+    // });
 
     ui.setSleepTimeout(30000); // 30s sleep
 }
